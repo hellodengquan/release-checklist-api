@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Optional, List
 from app.models import (
@@ -31,12 +31,21 @@ class ReleaseUpdate(BaseModel):
 
 class Release(ReleaseBase):
     id: int
+    blocker_count: int = 0
     total_blocker_count: int = 0
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+    @field_validator("total_blocker_count", mode="before")
+    @classmethod
+    def sync_total_blocker_count(cls, v, values):
+        if isinstance(v, int) and v > 0:
+            return v
+        blocker_count = values.data.get("blocker_count", 0)
+        return blocker_count
 
 
 class ReleaseDetail(Release):

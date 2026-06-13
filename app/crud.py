@@ -98,6 +98,11 @@ def get_check_item(db: Session, check_item_id: int) -> Optional[models.CheckItem
 def create_check_item(db: Session, release_id: int, check_item: schemas.CheckItemCreate) -> models.CheckItem:
     db_check_item = models.CheckItem(**check_item.model_dump(), release_id=release_id)
     db.add(db_check_item)
+    db.flush()
+
+    if _is_blocker(db_check_item):
+        _adjust_release_blocker_count(db, release_id, 1)
+
     db.commit()
     db.refresh(db_check_item)
     _update_release_status(db, release_id)
@@ -108,11 +113,22 @@ def update_check_item(db: Session, check_item_id: int, check_item: schemas.Check
     db_check_item = get_check_item(db, check_item_id)
     if not db_check_item:
         return None
+
+    was_blocker = _is_blocker(db_check_item)
+
     update_data = check_item.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] != db_check_item.status:
         update_data["checked_at"] = datetime.utcnow()
     for key, value in update_data.items():
         setattr(db_check_item, key, value)
+
+    db.flush()
+
+    is_now_blocker = _is_blocker(db_check_item)
+    if was_blocker != is_now_blocker:
+        delta = 1 if is_now_blocker else -1
+        _adjust_release_blocker_count(db, db_check_item.release_id, delta)
+
     db.commit()
     db.refresh(db_check_item)
     _update_release_status(db, db_check_item.release_id)
@@ -124,6 +140,10 @@ def delete_check_item(db: Session, check_item_id: int) -> bool:
     if not db_check_item:
         return False
     release_id = db_check_item.release_id
+
+    if _is_blocker(db_check_item):
+        _adjust_release_blocker_count(db, release_id, -1)
+
     db.delete(db_check_item)
     db.commit()
     _update_release_status(db, release_id)
@@ -292,6 +312,33 @@ def _update_release_status(db: Session, release_id: int) -> None:
     if db_release.status != new_status:
         db_release.status = new_status
         db.commit()
+
+
+def _is_blocker(check_item) -> bool:
+    return check_item.is_blocking and check_item.status not in (
+        CheckItemStatus.PASSED,
+        CheckItemStatus.SKIPPED,
+    )
+
+
+def _adjust_release_blocker_count(db: Session, release_id: int, delta: int) -> None:
+    db_release = get_release(db, release_id)
+    if db_release:
+        new_count = max(0, db_release.blocker_count + delta)
+        db_release.blocker_count = new_count
+        db.commit()
+
+
+def recount_blockers(db: Session, release_id: int) -> Optional[int]:
+    db_release = get_release(db, release_id)
+    if not db_release:
+        return None
+
+    count = _count_blockers(db, release_id)
+    db_release.blocker_count = count
+    db.commit()
+    db.refresh(db_release)
+    return count
 
 
 def _count_blockers(db: Session, release_id: int) -> int:

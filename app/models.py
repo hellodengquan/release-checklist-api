@@ -45,6 +45,7 @@ class Release(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     status = Column(Enum(ReleaseStatus), default=ReleaseStatus.DRAFT, nullable=False)
+    blocker_count = Column(Integer, default=0, nullable=False)
     release_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
