@@ -14,7 +14,6 @@ def get_release_schema(db: Session, release_id: int) -> Optional[schemas.Release
     db_release = get_release(db, release_id)
     if not db_release:
         return None
-    blocker_count = _count_blockers(db, release_id)
     return schemas.Release(
         id=db_release.id,
         version=db_release.version,
@@ -22,7 +21,7 @@ def get_release_schema(db: Session, release_id: int) -> Optional[schemas.Release
         description=db_release.description,
         status=db_release.status,
         release_date=db_release.release_date,
-        total_blocker_count=blocker_count,
+        blocker_count=db_release.blocker_count,
         created_at=db_release.created_at,
         updated_at=db_release.updated_at,
     )
@@ -36,7 +35,6 @@ def get_releases(db: Session, skip: int = 0, limit: int = 100) -> List[schemas.R
     db_releases = db.query(models.Release).order_by(models.Release.created_at.desc()).offset(skip).limit(limit).all()
     result = []
     for db_release in db_releases:
-        blocker_count = _count_blockers(db, db_release.id)
         result.append(schemas.Release(
             id=db_release.id,
             version=db_release.version,
@@ -44,7 +42,7 @@ def get_releases(db: Session, skip: int = 0, limit: int = 100) -> List[schemas.R
             description=db_release.description,
             status=db_release.status,
             release_date=db_release.release_date,
-            total_blocker_count=blocker_count,
+            blocker_count=db_release.blocker_count,
             created_at=db_release.created_at,
             updated_at=db_release.updated_at,
         ))
@@ -387,7 +385,7 @@ def get_release_blockers(db: Session, release_id: int) -> Optional[schemas.Relea
         release_version=db_release.version,
         release_name=db_release.name,
         status=db_release.status,
-        total_blocker_count=len(blocking_items),
+        total_blocker_count=db_release.blocker_count,
         blocking_check_items=blocking_items,
         pending_approvals=pending_approvals,
         last_status_change=last_status_change,

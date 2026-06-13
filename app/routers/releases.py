@@ -28,7 +28,6 @@ def get_release(release_id: int, db: Session = Depends(get_db)):
     db_release = crud.get_release(db, release_id=release_id)
     if db_release is None:
         raise HTTPException(status_code=404, detail="Release not found")
-    blocker_count = crud._count_blockers(db, release_id)
     detail = schemas.ReleaseDetail(
         id=db_release.id,
         version=db_release.version,
@@ -36,7 +35,7 @@ def get_release(release_id: int, db: Session = Depends(get_db)):
         description=db_release.description,
         status=db_release.status,
         release_date=db_release.release_date,
-        total_blocker_count=blocker_count,
+        blocker_count=db_release.blocker_count,
         created_at=db_release.created_at,
         updated_at=db_release.updated_at,
         check_items=db_release.check_items,
@@ -67,3 +66,11 @@ def get_release_blockers(release_id: int, db: Session = Depends(get_db)):
     if blockers is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return blockers
+
+
+@router.get("/{release_id}/recount-blockers", response_model=schemas.Release)
+def recount_blockers(release_id: int, db: Session = Depends(get_db)):
+    result = crud.recount_blockers(db, release_id=release_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Release not found")
+    return crud.get_release_schema(db, release_id=release_id)
