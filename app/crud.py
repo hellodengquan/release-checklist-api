@@ -10,12 +10,45 @@ def get_release(db: Session, release_id: int) -> Optional[models.Release]:
     return db.query(models.Release).filter(models.Release.id == release_id).first()
 
 
+def get_release_schema(db: Session, release_id: int) -> Optional[schemas.Release]:
+    db_release = get_release(db, release_id)
+    if not db_release:
+        return None
+    blocker_count = _count_blockers(db, release_id)
+    return schemas.Release(
+        id=db_release.id,
+        version=db_release.version,
+        name=db_release.name,
+        description=db_release.description,
+        status=db_release.status,
+        release_date=db_release.release_date,
+        total_blocker_count=blocker_count,
+        created_at=db_release.created_at,
+        updated_at=db_release.updated_at,
+    )
+
+
 def get_release_by_version(db: Session, version: str) -> Optional[models.Release]:
     return db.query(models.Release).filter(models.Release.version == version).first()
 
 
-def get_releases(db: Session, skip: int = 0, limit: int = 100) -> List[models.Release]:
-    return db.query(models.Release).order_by(models.Release.created_at.desc()).offset(skip).limit(limit).all()
+def get_releases(db: Session, skip: int = 0, limit: int = 100) -> List[schemas.Release]:
+    db_releases = db.query(models.Release).order_by(models.Release.created_at.desc()).offset(skip).limit(limit).all()
+    result = []
+    for db_release in db_releases:
+        blocker_count = _count_blockers(db, db_release.id)
+        result.append(schemas.Release(
+            id=db_release.id,
+            version=db_release.version,
+            name=db_release.name,
+            description=db_release.description,
+            status=db_release.status,
+            release_date=db_release.release_date,
+            total_blocker_count=blocker_count,
+            created_at=db_release.created_at,
+            updated_at=db_release.updated_at,
+        ))
+    return result
 
 
 def create_release(db: Session, release: schemas.ReleaseCreate) -> models.Release:
@@ -259,3 +292,79 @@ def _update_release_status(db: Session, release_id: int) -> None:
     if db_release.status != new_status:
         db_release.status = new_status
         db.commit()
+
+
+def _count_blockers(db: Session, release_id: int) -> int:
+    return (
+        db.query(models.CheckItem)
+        .filter(
+            models.CheckItem.release_id == release_id,
+            models.CheckItem.is_blocking == True,
+            models.CheckItem.status != CheckItemStatus.PASSED,
+            models.CheckItem.status != CheckItemStatus.SKIPPED,
+        )
+        .count()
+    )
+
+
+def get_release_blockers(db: Session, release_id: int) -> Optional[schemas.ReleaseBlockers]:
+    db_release = get_release(db, release_id)
+    if not db_release:
+        return None
+
+    blocking_items = (
+        db.query(models.CheckItem)
+        .filter(
+            models.CheckItem.release_id == release_id,
+            models.CheckItem.is_blocking == True,
+            models.CheckItem.status != CheckItemStatus.PASSED,
+            models.CheckItem.status != CheckItemStatus.SKIPPED,
+        )
+        .order_by(models.CheckItem.sort_order, models.CheckItem.id)
+        .all()
+    )
+
+    pending_approvals = (
+        db.query(models.Approval)
+        .filter(
+            models.Approval.release_id == release_id,
+            models.Approval.status == ApprovalStatus.PENDING,
+        )
+        .all()
+    )
+
+    last_status_change = _find_last_status_change(db, release_id)
+
+    return schemas.ReleaseBlockers(
+        release_id=db_release.id,
+        release_version=db_release.version,
+        release_name=db_release.name,
+        status=db_release.status,
+        total_blocker_count=len(blocking_items),
+        blocking_check_items=blocking_items,
+        pending_approvals=pending_approvals,
+        last_status_change=last_status_change,
+    )
+
+
+def _find_last_status_change(db: Session, release_id: int) -> Optional[datetime]:
+    check_items = db.query(models.CheckItem).filter(models.CheckItem.release_id == release_id).all()
+    approvals = db.query(models.Approval).filter(models.Approval.release_id == release_id).all()
+
+    timestamps = []
+    for ci in check_items:
+        if ci.checked_at:
+            timestamps.append(ci.checked_at)
+        timestamps.append(ci.updated_at)
+    for a in approvals:
+        if a.approved_at:
+            timestamps.append(a.approved_at)
+        timestamps.append(a.updated_at)
+
+    db_release = get_release(db, release_id)
+    if db_release:
+        timestamps.append(db_release.updated_at)
+
+    if timestamps:
+        return max(timestamps)
+    return None

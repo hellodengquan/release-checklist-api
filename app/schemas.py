@@ -31,6 +31,7 @@ class ReleaseUpdate(BaseModel):
 
 class Release(ReleaseBase):
     id: int
+    total_blocker_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -137,6 +138,17 @@ class ReleaseSummary(BaseModel):
     pending_approvals: int
     rejected_approvals: int
     can_release: bool
+
+
+class ReleaseBlockers(BaseModel):
+    release_id: int
+    release_version: str
+    release_name: str
+    status: ReleaseStatus
+    total_blocker_count: int
+    blocking_check_items: List[CheckItem]
+    pending_approvals: List[Approval]
+    last_status_change: Optional[datetime] = None
 
 
 ReleaseDetail.model_rebuild()
